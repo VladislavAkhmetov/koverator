@@ -113,13 +113,19 @@ export default async function handler(request) {
         
         // Добавляем таймаут для запроса (максимум 240 секунд)
         const generateWithTimeout = async () => {
+          const config = {
+            contents: [{ parts }],
+          };
+          
+          // Пробуем с responseMimeType только для моделей, которые поддерживают
+          if (modelName.includes('2.0') || modelName.includes('flash-exp')) {
+            config.generationConfig = {
+              responseMimeType: 'image/png',
+            };
+          }
+          
           return Promise.race([
-            model.generateContent({
-              contents: [{ parts }],
-              generationConfig: {
-                responseMimeType: 'image/png',
-              }
-            }),
+            model.generateContent(config),
             new Promise((_, reject) => 
               setTimeout(() => reject(new Error('Request timeout after 240 seconds')), 240000)
             )
