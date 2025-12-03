@@ -89,17 +89,31 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     
     prompt += `\nEnsure the image is a flat, top-down view of the pattern. High resolution, sharp focus.`;
 
-    // 3. Send to our Backend Proxy
-    const response = await fetch('/api/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        base64Layout
-      }),
-    });
+    // 3. Send to our Backend Proxy with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 280000); // 280 секунд (чуть меньше чем 300 на сервере)
+    
+    let response;
+    try {
+      response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          base64Layout
+        }),
+        signal: controller.signal
+      });
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout: The server took too long to respond (280s limit)');
+      }
+      throw error;
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       let errorMessage = `Server Error: ${response.status}`;

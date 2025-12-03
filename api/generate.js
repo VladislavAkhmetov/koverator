@@ -78,53 +78,86 @@ export default async function handler(request) {
     console.log('Initializing Gemini API...');
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // Используем стабильную модель для генерации изображений
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.0-flash-exp',
-    });
-
-    const parts = [{ text: prompt }];
-    
-    if (base64Layout) {
-      console.log('Adding image input...');
-      parts.push({
-        inlineData: {
-          mimeType: 'image/png',
-          data: base64Layout
-        }
-      });
-    }
-
-    console.log('Generating content...');
-    const result = await model.generateContent({
-      contents: [{ parts }],
-      generationConfig: {
-        responseMimeType: 'image/png',
-      }
-    });
-
-    console.log('Content generated, processing response...');
-    const response = await result.response;
-    
-    // Extract image from response
+    // Используем модель, которая поддерживает генерацию изображений
+    // Попробуем разные варианты моделей
+    let model;
     let base64Data = "";
-    const responseParts = response.candidates?.[0]?.content?.parts || [];
     
-    console.log(`Response parts count: ${responseParts.length}`);
+    // Список моделей для попытки (в порядке приоритета)
+    const modelsToTry = [
+      'gemini-2.0-flash-exp',
+      'gemini-1.5-flash',
+      'gemini-1.5-pro'
+    ];
     
-    for (const part of responseParts) {
-      if (part.inlineData && part.inlineData.data) {
-        base64Data = part.inlineData.data;
-        console.log(`Image data extracted, length: ${base64Data.length}`);
-        break;
+    let lastError = null;
+    
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Trying model: ${modelName}`);
+        model = genAI.getGenerativeModel({ model: modelName });
+
+        const parts = [{ text: prompt }];
+        
+        if (base64Layout) {
+          console.log('Adding image input...');
+          parts.push({
+            inlineData: {
+              mimeType: 'image/png',
+              data: base64Layout
+            }
+          });
+        }
+
+        console.log('Generating content...');
+        
+        // Добавляем таймаут для запроса (максимум 240 секунд)
+        const generateWithTimeout = async () => {
+          return Promise.race([
+            model.generateContent({
+              contents: [{ parts }],
+              generationConfig: {
+                responseMimeType: 'image/png',
+              }
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Request timeout after 240 seconds')), 240000)
+            )
+          ]);
+        };
+        
+        const result = await generateWithTimeout();
+        console.log('Content generated, processing response...');
+        const response = await result.response;
+        
+        // Extract image from response
+        const responseParts = response.candidates?.[0]?.content?.parts || [];
+        console.log(`Response parts count: ${responseParts.length}`);
+        
+        for (const part of responseParts) {
+          if (part.inlineData && part.inlineData.data) {
+            base64Data = part.inlineData.data;
+            console.log(`Image data extracted, length: ${base64Data.length}`);
+            break;
+          }
+        }
+        
+        if (base64Data) {
+          break; // Успешно получили изображение
+        }
+      } catch (error) {
+        console.error(`Error with model ${modelName}:`, error.message);
+        lastError = error;
+        // Пробуем следующую модель
+        continue;
       }
     }
 
     if (!base64Data) {
-      console.error('No image data in response. Response structure:', JSON.stringify(response, null, 2));
+      console.error('No image data in response after trying all models. Last error:', lastError?.message);
       return new Response(JSON.stringify({ 
-        error: 'No image data received from Gemini',
-        debug: 'Response structure logged to server console'
+        error: 'Failed to generate image. Models may not support image generation or API key is invalid.',
+        details: lastError?.message || 'Unknown error'
       }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
