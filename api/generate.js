@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const config = {
-  runtime: 'nodejs20', // Use Node.js runtime for full API support
+  runtime: 'nodejs', // Use Node.js runtime for full API support
 };
 
 export default async function handler(request) {
