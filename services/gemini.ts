@@ -102,11 +102,30 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Server Error: ${response.status}`);
+      let errorMessage = `Server Error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch (e) {
+        // Если ответ не JSON, читаем как текст
+        const textError = await response.text();
+        errorMessage = textError || errorMessage;
+      }
+      throw new Error(errorMessage);
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      const textResponse = await response.text();
+      throw new Error(`Invalid JSON response: ${textResponse.substring(0, 100)}`);
+    }
+    
+    if (!data.imageUrl) {
+      throw new Error('No imageUrl in response');
+    }
+    
     return data.imageUrl;
 
   } catch (error) {
