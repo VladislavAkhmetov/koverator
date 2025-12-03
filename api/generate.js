@@ -35,11 +35,25 @@ export default async function handler(request) {
     const getApiKey = () => {
       // Вариант 1: Один ключ через запятую (GOOGLE_API_KEY=key1,key2,key3)
       const multiKey = process.env.GOOGLE_API_KEY;
-      if (multiKey && multiKey.includes(',')) {
-        const keys = multiKey.split(',').map(k => k.trim()).filter(k => k);
-        if (keys.length > 0) {
-          // Ротация: выбираем случайный ключ
-          return keys[Math.floor(Math.random() * keys.length)];
+      if (multiKey) {
+        // Проверяем, есть ли запятая (несколько ключей)
+        if (multiKey.includes(',')) {
+          const keys = multiKey
+            .split(',')
+            .map(k => k.trim())
+            .filter(k => k && k.length > 0); // Убираем пустые строки
+          
+          if (keys.length > 0) {
+            console.log(`Found ${keys.length} keys in GOOGLE_API_KEY (comma-separated)`);
+            // Ротация: выбираем случайный ключ
+            const selectedKey = keys[Math.floor(Math.random() * keys.length)];
+            console.log(`Selected key ${keys.indexOf(selectedKey) + 1} of ${keys.length}`);
+            return selectedKey;
+          }
+        } else {
+          // Один ключ без запятых
+          console.log('Using single GOOGLE_API_KEY');
+          return multiKey.trim();
         }
       }
       
@@ -47,18 +61,19 @@ export default async function handler(request) {
       const keys = [];
       let i = 1;
       while (process.env[`GOOGLE_API_KEY_${i}`]) {
-        keys.push(process.env[`GOOGLE_API_KEY_${i}`]);
+        const key = process.env[`GOOGLE_API_KEY_${i}`].trim();
+        if (key && key.length > 0) {
+          keys.push(key);
+        }
         i++;
       }
       
       if (keys.length > 0) {
+        console.log(`Found ${keys.length} keys (GOOGLE_API_KEY_1, GOOGLE_API_KEY_2, etc.)`);
         // Ротация: выбираем случайный ключ
-        return keys[Math.floor(Math.random() * keys.length)];
-      }
-      
-      // Вариант 3: Один ключ (GOOGLE_API_KEY)
-      if (multiKey) {
-        return multiKey;
+        const selectedKey = keys[Math.floor(Math.random() * keys.length)];
+        console.log(`Selected key ${keys.indexOf(selectedKey) + 1} of ${keys.length}`);
+        return selectedKey;
       }
       
       return null;
@@ -74,9 +89,31 @@ export default async function handler(request) {
       });
     }
 
+    if (!apiKey || apiKey.length < 20) {
+      console.error('Invalid API key detected (too short or empty)');
+      return new Response(JSON.stringify({ 
+        error: 'Invalid API key configuration. Check GOOGLE_API_KEY in Vercel settings.' 
+      }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    
     console.log(`Using API key (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 10)}...)`);
     console.log('Initializing Gemini API...');
-    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    let genAI;
+    try {
+      genAI = new GoogleGenerativeAI(apiKey);
+    } catch (error) {
+      console.error('Failed to initialize GoogleGenerativeAI:', error);
+      return new Response(JSON.stringify({ 
+        error: 'Failed to initialize API client. Check API key format.' 
+      }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
     
     // Используем модель, которая поддерживает генерацию изображений
     // Попробуем разные варианты моделей
@@ -111,7 +148,7 @@ export default async function handler(request) {
 
         console.log('Generating content...');
         
-        // Добавляем таймаут для запроса (максимум 240 секунд)
+        // Добавляем таймаут для запроса (максимум 8 секунд для Free Tier)
         const generateWithTimeout = async () => {
           const config = {
             contents: [{ parts }],
@@ -127,7 +164,7 @@ export default async function handler(request) {
           return Promise.race([
             model.generateContent(config),
             new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Request timeout after 240 seconds')), 240000)
+              setTimeout(() => reject(new Error('Request timeout after 8 seconds (Vercel Free Tier limit)')), 8000)
             )
           ]);
         };

@@ -89,9 +89,9 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     
     prompt += `\nEnsure the image is a flat, top-down view of the pattern. High resolution, sharp focus.`;
 
-    // 3. Send to our Backend Proxy with timeout
+    // 3. Send to our Backend Proxy with timeout (9 секунд для Free Tier)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 280000); // 280 секунд (чуть меньше чем 300 на сервере)
+    const timeoutId = setTimeout(() => controller.abort(), 9000); // 9 секунд (чуть меньше чем 10 на сервере)
     
     let response;
     try {
@@ -109,7 +109,7 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     } catch (error: any) {
       clearTimeout(timeoutId);
       if (error.name === 'AbortError') {
-        throw new Error('Request timeout: The server took too long to respond (280s limit)');
+        throw new Error('Timeout: Генерация заняла слишком много времени (лимит Vercel Free Tier: 10 секунд). Попробуйте позже или используйте Pro план.');
       }
       throw error;
     }
@@ -117,23 +117,56 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
 
     if (!response.ok) {
       let errorMessage = `Server Error: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
-      } catch (e) {
-        // Если ответ не JSON, читаем как текст
-        const textError = await response.text();
-        errorMessage = textError || errorMessage;
+      
+      // Специальная обработка для таймаутов
+      if (response.status === 504 || response.status === 408) {
+        errorMessage = 'Timeout: Генерация заняла слишком много времени (лимит Vercel Free Tier: 10 секунд). Попробуйте позже или используйте Pro план.';
+      } else {
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // Если ответ не JSON, читаем как текст (но ограничиваем длину)
+          try {
+            const textError = await response.text();
+            // Если это HTML страница с ошибкой, показываем понятное сообщение
+            if (textError.includes('<html') || textError.includes('<!DOCTYPE')) {
+              if (response.status === 504) {
+                errorMessage = 'Timeout: Генерация заняла слишком много времени (лимит Vercel Free Tier: 10 секунд).';
+              } else {
+                errorMessage = `Server Error ${response.status}: Не удалось получить ответ от сервера.`;
+              }
+            } else {
+              errorMessage = textError.substring(0, 200) || errorMessage;
+            }
+          } catch (textError) {
+            errorMessage = `Server Error ${response.status}: Не удалось прочитать ответ.`;
+          }
+        }
       }
       throw new Error(errorMessage);
     }
 
     let data;
     try {
-      data = await response.json();
+      const responseText = await response.text();
+      data = JSON.parse(responseText);
     } catch (e) {
-      const textResponse = await response.text();
-      throw new Error(`Invalid JSON response: ${textResponse.substring(0, 100)}`);
+      // Если не JSON, пытаемся понять что это
+      let errorMsg = 'Invalid JSON response from server';
+      try {
+        const textResponse = await response.text();
+        if (textResponse.includes('timeout') || textResponse.includes('Timeout')) {
+          errorMsg = 'Timeout: Генерация заняла слишком много времени (лимит Vercel Free Tier: 10 секунд).';
+        } else if (textResponse.includes('<html') || textResponse.includes('<!DOCTYPE')) {
+          errorMsg = 'Server returned HTML instead of JSON. Possible timeout or server error.';
+        } else {
+          errorMsg = `Invalid JSON response: ${textResponse.substring(0, 100)}`;
+        }
+      } catch (textError) {
+        errorMsg = 'Failed to parse server response';
+      }
+      throw new Error(errorMsg);
     }
     
     if (!data.imageUrl) {
