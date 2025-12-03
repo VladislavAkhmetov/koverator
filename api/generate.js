@@ -31,16 +31,50 @@ export default async function handler(request) {
       });
     }
 
-    const apiKey = process.env.GOOGLE_API_KEY;
+    // Поддержка нескольких API ключей с ротацией
+    const getApiKey = () => {
+      // Вариант 1: Один ключ через запятую (GOOGLE_API_KEY=key1,key2,key3)
+      const multiKey = process.env.GOOGLE_API_KEY;
+      if (multiKey && multiKey.includes(',')) {
+        const keys = multiKey.split(',').map(k => k.trim()).filter(k => k);
+        if (keys.length > 0) {
+          // Ротация: выбираем случайный ключ
+          return keys[Math.floor(Math.random() * keys.length)];
+        }
+      }
+      
+      // Вариант 2: Несколько переменных (GOOGLE_API_KEY_1, GOOGLE_API_KEY_2, etc.)
+      const keys = [];
+      let i = 1;
+      while (process.env[`GOOGLE_API_KEY_${i}`]) {
+        keys.push(process.env[`GOOGLE_API_KEY_${i}`]);
+        i++;
+      }
+      
+      if (keys.length > 0) {
+        // Ротация: выбираем случайный ключ
+        return keys[Math.floor(Math.random() * keys.length)];
+      }
+      
+      // Вариант 3: Один ключ (GOOGLE_API_KEY)
+      if (multiKey) {
+        return multiKey;
+      }
+      
+      return null;
+    };
+
+    const apiKey = getApiKey();
 
     if (!apiKey) {
-      console.error('GOOGLE_API_KEY is missing');
+      console.error('No GOOGLE_API_KEY found. Use GOOGLE_API_KEY, GOOGLE_API_KEY_1/GOOGLE_API_KEY_2, or comma-separated keys');
       return new Response(JSON.stringify({ error: 'Server configuration error: GOOGLE_API_KEY is missing' }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
+    console.log(`Using API key (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 10)}...)`);
     console.log('Initializing Gemini API...');
     const genAI = new GoogleGenerativeAI(apiKey);
     
@@ -107,8 +141,17 @@ export default async function handler(request) {
   } catch (error) {
     console.error("API Error:", error);
     console.error("Error stack:", error.stack);
+    
+    // Проверяем специфичные ошибки API ключа
+    let errorMessage = error.message || 'Internal Server Error';
+    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('401') || error.message?.includes('403')) {
+      errorMessage = 'Invalid API key. Check GOOGLE_API_KEY in Vercel settings.';
+    } else if (error.message?.includes('429') || error.message?.includes('quota')) {
+      errorMessage = 'API quota exceeded. Try using multiple API keys (GOOGLE_API_KEY_1, GOOGLE_API_KEY_2, etc.)';
+    }
+    
     return new Response(JSON.stringify({ 
-      error: error.message || 'Internal Server Error',
+      error: errorMessage,
       details: error.toString(),
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }), { 
