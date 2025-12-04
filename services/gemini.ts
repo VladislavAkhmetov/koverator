@@ -65,13 +65,18 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     
     prompt += ` Flat top-down view. High resolution, sharp focus.`;
 
-    // 3. Send to our Backend Proxy with timeout (9 секунд для Free Tier)
+    // 3. Send to our Backend Proxy with timeout
+    // Используй переменную окружения VITE_API_URL для внешнего бэкенда
+    // Например: VITE_API_URL=https://koverator-api.onrender.com
+    const API_URL = import.meta.env.VITE_API_URL || '/api';
+    const apiEndpoint = `${API_URL}/generate`;
+    
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 9000); // 9 секунд (чуть меньше чем 10 на сервере)
+    const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 секунд для Render/Fly.io
     
     let response;
     try {
-      response = await fetch('/api/generate', {
+      response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -96,7 +101,7 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
       
       // Специальная обработка для таймаутов
       if (response.status === 504 || response.status === 408) {
-        errorMessage = 'Timeout: Генерация заняла слишком много времени (лимит Vercel Free Tier: 10 секунд). Попробуйте позже или используйте Pro план.';
+        errorMessage = 'Timeout: Генерация заняла слишком много времени. Попробуйте позже.';
       } else {
         try {
           const errorData = await response.json();

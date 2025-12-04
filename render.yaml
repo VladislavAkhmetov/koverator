@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: koverator-api
+    env: node
+    buildCommand: npm install
+    startCommand: npm run server
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+    healthCheckPath: /health
+
