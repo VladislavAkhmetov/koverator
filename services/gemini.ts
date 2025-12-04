@@ -56,38 +56,14 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
       ? `THEMATIC VISUALS (MANDATORY):\n- You MUST incorporate the following motifs into the carpet pattern:\n${visualInstructions.map(i => `  * ${i}`).join('\n')}`
       : '- Standard geometric filler patterns.';
 
-    let prompt = `
-      Design a 16:9 rectangular Soviet-style wall carpet (rug) texture.
-      
-      COLOR PALETTE RESTRICTION (STRICT):
-      - Primary Colors: Deep Black (#000000), Brand Blue (#3253EE), Acid Lime Green (#CCFF00), Pure White (#FFFFFF).
-      - Do NOT use red, brown, or beige.
-      
-      STRUCTURE & STYLE:
-      - Border: ${settings.borderThickness} decorative border.
-      - Geometry Style: ${settings.geometry}.
-      - Center: ${settings.symmetry === 'Kaleidoscope' ? 'Perfectly radial kaleidoscopic medallion' : settings.symmetry} arrangement.
-      
-      ${themePromptBlock}
-      
-      TEXTURE & VIBE:
-      - Appearance: ${wearTerm}.
-      - Detail Level: ${complexityTerm}.
-      - Material: Realistic wool thread texture, visible weaving grid.
-      - Aesthetic: Cyber-Soviet, Retro-Futurist, Brutalist.
-    `;
+    // Оптимизированный промпт (короче для скорости)
+    let prompt = `16:9 Soviet-style carpet. Colors: Black (#000000), Blue (#3253EE), Lime (#CCFF00), White (#FFFFFF). No red/brown/beige. Border: ${settings.borderThickness}. Style: ${settings.geometry}. Symmetry: ${settings.symmetry === 'Kaleidoscope' ? 'radial kaleidoscope' : settings.symmetry}. ${themePromptBlock.replace(/\n/g, ' ')} Texture: ${wearTerm}. Detail: ${complexityTerm}. Wool thread texture, weaving grid. Cyber-Soviet, Retro-Futurist, Brutalist aesthetic.`;
 
     if (base64Layout) {
-      prompt += `
-      CRITICAL INPUT IMAGE INSTRUCTION (HIGHEST PRIORITY):
-      - The attached input image contains the COMPANY LOGO layout (white shapes on black).
-      - You MUST reproduce these logo shapes EXACTLY as they appear in the input image.
-      - The logo is the MOST IMPORTANT element.
-      - Weave the logo in Brand Blue (#3253EE) or Lime (#CCFF00).
-      `;
+      prompt += ` CRITICAL: Attached image contains COMPANY LOGO (white on black). Reproduce logo EXACTLY. Use Blue (#3253EE) or Lime (#CCFF00).`;
     }
     
-    prompt += `\nEnsure the image is a flat, top-down view of the pattern. High resolution, sharp focus.`;
+    prompt += ` Flat top-down view. High resolution, sharp focus.`;
 
     // 3. Send to our Backend Proxy with timeout (9 секунд для Free Tier)
     const controller = new AbortController();
