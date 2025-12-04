@@ -1,6 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,6 +13,9 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Раздача статических файлов из dist (для фронтенда)
+app.use(express.static(join(__dirname, 'dist')));
 
 // Поддержка нескольких API ключей с ротацией
 const getApiKey = () => {
@@ -185,8 +193,19 @@ app.post('/api/generate', async (req, res) => {
   }
 });
 
+// Fallback для SPA роутинга - все остальные запросы на index.html
+app.get('*', (req, res) => {
+  // Пропускаем API запросы
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  // Отдаем index.html для всех остальных запросов (SPA роутинг)
+  res.sendFile(join(__dirname, 'dist', 'index.html'));
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`Frontend available at http://localhost:${PORT}`);
 });
 
