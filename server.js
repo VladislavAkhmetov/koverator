@@ -98,10 +98,22 @@ app.post('/api/generate', async (req, res) => {
     }
     
     // Используем только самую быструю модель
+    // ВАЖНО: Проверь, поддерживает ли модель генерацию изображений
+    // Если не работает, попробуй 'gemini-1.5-flash' или другую модель
     const modelName = 'gemini-2.0-flash-exp';
     console.log(`Using model: ${modelName}`);
     
-    const model = genAI.getGenerativeModel({ model: modelName });
+    let model;
+    try {
+      model = genAI.getGenerativeModel({ model: modelName });
+      console.log('Model initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize model:', error);
+      return res.status(500).json({ 
+        error: 'Failed to initialize Gemini model',
+        details: error.message
+      });
+    }
 
     const parts = [{ text: prompt }];
     
