@@ -94,7 +94,7 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     } catch (error: any) {
       clearTimeout(timeoutId);
       if (error.name === 'AbortError') {
-        throw new Error('Timeout: Генерация заняла слишком много времени (лимит Vercel Free Tier: 10 секунд). Попробуйте позже или используйте Pro план.');
+        throw new Error('Timeout: Генерация заняла слишком много времени (лимит: 60 секунд). Попробуйте позже.');
       }
       throw error;
     }

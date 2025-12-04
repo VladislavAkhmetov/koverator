@@ -146,11 +146,16 @@ app.post('/api/generate', async (req, res) => {
     let result;
     try {
       result = await generateWithTimeout();
+      const elapsed = Date.now() - startTime;
+      console.log(`Generation completed in ${Math.round(elapsed/1000)} seconds`);
     } catch (error) {
-      console.error('Generation timeout or error:', error.message);
+      const elapsed = Date.now() - startTime;
+      console.error(`Generation failed after ${Math.round(elapsed/1000)} seconds:`, error.message);
+      console.error('Error details:', error);
       return res.status(504).json({ 
         error: 'Генерация заняла слишком много времени. Попробуйте позже.',
-        details: error.message
+        details: error.message,
+        elapsed: Math.round(elapsed/1000)
       });
     }
     
