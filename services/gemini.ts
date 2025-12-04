@@ -68,11 +68,15 @@ export const generateCarpet = async (settings: CarpetSettings): Promise<string> 
     // 3. Send to our Backend Proxy with timeout
     // Используй переменную окружения VITE_API_URL для внешнего бэкенда
     // Например: VITE_API_URL=https://koverator-api.onrender.com
+    // Используй переменную окружения VITE_API_URL для внешнего бэкенда
+    // Если на Render - оставь пустым или укажи полный URL Render сервиса
     const API_URL = import.meta.env.VITE_API_URL || '/api';
     const apiEndpoint = `${API_URL}/generate`;
     
+    console.log('Sending request to:', apiEndpoint);
+    
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 секунд для Render/Fly.io
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 секунд для Render
     
     let response;
     try {

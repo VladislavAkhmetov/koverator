@@ -119,8 +119,9 @@ app.post('/api/generate', async (req, res) => {
     }
 
     console.log('Generating content...');
+    const startTime = Date.now();
     
-    // Таймаут: 50 секунд (для Render/Fly.io обычно лимит 60 секунд)
+    // Таймаут: 55 секунд (Render Free Tier лимит 60 секунд, оставляем запас)
     const generateWithTimeout = async () => {
       const config = {
         contents: [{ parts }],
@@ -134,7 +135,10 @@ app.post('/api/generate', async (req, res) => {
       return Promise.race([
         model.generateContent(config),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout after 50 seconds')), 50000)
+          setTimeout(() => {
+            const elapsed = Date.now() - startTime;
+            reject(new Error(`Request timeout after ${Math.round(elapsed/1000)} seconds`));
+          }, 55000)
         )
       ]);
     };
