@@ -3,6 +3,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Replicate from "replicate";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -134,11 +135,12 @@ app.post('/api/generate', async (req, res) => {
     const startTime = Date.now();
     
     // Таймаут: 55 секунд (Render Free Tier лимит 60 секунд, оставляем запас)
+    // ВАЖНО: Gemini API не поддерживает responseMimeType: 'image/png'
+    // Используем стандартный запрос и парсим ответ
     const generateWithTimeout = async () => {
       const config = {
         contents: [{ parts }],
         generationConfig: {
-          responseMimeType: 'image/png',
           temperature: 0.7,
           maxOutputTokens: 8192,
         }
@@ -178,20 +180,71 @@ app.post('/api/generate', async (req, res) => {
     let base64Data = "";
     const responseParts = response.candidates?.[0]?.content?.parts || [];
     console.log(`Response parts count: ${responseParts.length}`);
+    console.log('Response structure:', JSON.stringify(responseParts.map(p => ({
+      hasText: !!p.text,
+      hasInlineData: !!p.inlineData,
+      textPreview: p.text?.substring(0, 100)
+    })), null, 2));
     
     for (const part of responseParts) {
+      // Проверяем inlineData (изображение)
       if (part.inlineData && part.inlineData.data) {
         base64Data = part.inlineData.data;
         console.log(`Image data extracted, length: ${base64Data.length}`);
         break;
       }
+      // Если есть текст, логируем его
+      if (part.text) {
+        console.log(`Text response (first 200 chars): ${part.text.substring(0, 200)}`);
+      }
     }
 
     if (!base64Data) {
-      console.error('No image data in response');
-      return res.status(500).json({ 
-        error: 'No image data received from Gemini. Model may not support image generation.',
-      });
+      console.log('Gemini не вернул изображение, пробуем через Replicate (Stable Diffusion)...');
+      
+      // Используем Replicate для генерации изображения
+      const replicateToken = process.env.REPLICATE_API_TOKEN;
+      if (!replicateToken) {
+        console.error('REPLICATE_API_TOKEN not set, falling back to error');
+        return res.status(500).json({ 
+          error: 'Gemini API не поддерживает генерацию изображений. Добавь REPLICATE_API_TOKEN для использования Stable Diffusion.',
+          details: 'Для генерации изображений нужен Replicate API. Получи токен на replicate.com',
+        });
+      }
+      
+      try {
+        const replicate = new Replicate({ token: replicateToken });
+        console.log('Generating image via Replicate Stable Diffusion...');
+        
+        // Используем промпт из Gemini или оригинальный
+        const imagePrompt = prompt.trim();
+        
+        const output = await replicate.run(
+          "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
+          {
+            input: {
+              prompt: imagePrompt,
+              aspect_ratio: "16:9",
+              output_format: "png",
+            }
+          }
+        );
+        
+        if (output && output[0]) {
+          // Replicate возвращает URL изображения
+          const imageUrl = output[0];
+          console.log('Image generated via Replicate:', imageUrl);
+          return res.json({ imageUrl });
+        } else {
+          throw new Error('Replicate returned no image');
+        }
+      } catch (replicateError) {
+        console.error('Replicate error:', replicateError);
+        return res.status(500).json({ 
+          error: 'Ошибка генерации изображения через Replicate',
+          details: replicateError.message,
+        });
+      }
     }
 
     return res.json({ imageUrl: `data:image/png;base64,${base64Data}` });
