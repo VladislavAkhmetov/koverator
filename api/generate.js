@@ -115,92 +115,84 @@ export default async function handler(request) {
       });
     }
     
-    // Используем модель, которая поддерживает генерацию изображений
-    // Попробуем разные варианты моделей
-    let model;
+    // Используем только самую быструю модель (без перебора)
+    const modelName = 'gemini-2.0-flash-exp';
+    console.log(`Using model: ${modelName}`);
+    
+    const model = genAI.getGenerativeModel({ model: modelName });
+
+    const parts = [{ text: prompt }];
+    
+    // Оптимизация: если base64Layout слишком большой, пропускаем его для скорости
+    if (base64Layout && base64Layout.length < 500000) { // Только если меньше ~500KB
+      console.log('Adding image input...');
+      parts.push({
+        inlineData: {
+          mimeType: 'image/png',
+          data: base64Layout
+        }
+      });
+    } else if (base64Layout) {
+      console.log('Skipping large image input for speed optimization');
+    }
+
+    console.log('Generating content...');
+    
+    // Агрессивный таймаут: 7 секунд (оставляем запас для обработки)
+    const generateWithTimeout = async () => {
+      const config = {
+        contents: [{ parts }],
+        generationConfig: {
+          responseMimeType: 'image/png',
+          // Оптимизация: уменьшаем сложность для скорости
+          temperature: 0.7,
+          maxOutputTokens: 8192,
+        }
+      };
+      
+      return Promise.race([
+        model.generateContent(config),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout after 7 seconds')), 7000)
+        )
+      ]);
+    };
+    
+    let result;
+    try {
+      result = await generateWithTimeout();
+    } catch (error) {
+      console.error('Generation timeout or error:', error.message);
+      return new Response(JSON.stringify({ 
+        error: 'Генерация заняла слишком много времени (лимит: 7 секунд). Попробуйте упростить запрос или используйте Vercel Pro.',
+        details: error.message
+      }), { 
+        status: 504,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    
+    console.log('Content generated, processing response...');
+    const response = await result.response;
+    
+    // Extract image from response
     let base64Data = "";
+    const responseParts = response.candidates?.[0]?.content?.parts || [];
+    console.log(`Response parts count: ${responseParts.length}`);
     
-    // Список моделей для попытки (в порядке приоритета)
-    const modelsToTry = [
-      'gemini-2.0-flash-exp',
-      'gemini-1.5-flash',
-      'gemini-1.5-pro'
-    ];
-    
-    let lastError = null;
-    
-    for (const modelName of modelsToTry) {
-      try {
-        console.log(`Trying model: ${modelName}`);
-        model = genAI.getGenerativeModel({ model: modelName });
-
-        const parts = [{ text: prompt }];
-        
-        if (base64Layout) {
-          console.log('Adding image input...');
-          parts.push({
-            inlineData: {
-              mimeType: 'image/png',
-              data: base64Layout
-            }
-          });
-        }
-
-        console.log('Generating content...');
-        
-        // Добавляем таймаут для запроса (максимум 8 секунд для Free Tier)
-        const generateWithTimeout = async () => {
-          const config = {
-            contents: [{ parts }],
-          };
-          
-          // Пробуем с responseMimeType только для моделей, которые поддерживают
-          if (modelName.includes('2.0') || modelName.includes('flash-exp')) {
-            config.generationConfig = {
-              responseMimeType: 'image/png',
-            };
-          }
-          
-          return Promise.race([
-            model.generateContent(config),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Request timeout after 8 seconds (Vercel Free Tier limit)')), 8000)
-            )
-          ]);
-        };
-        
-        const result = await generateWithTimeout();
-        console.log('Content generated, processing response...');
-        const response = await result.response;
-        
-        // Extract image from response
-        const responseParts = response.candidates?.[0]?.content?.parts || [];
-        console.log(`Response parts count: ${responseParts.length}`);
-        
-        for (const part of responseParts) {
-          if (part.inlineData && part.inlineData.data) {
-            base64Data = part.inlineData.data;
-            console.log(`Image data extracted, length: ${base64Data.length}`);
-            break;
-          }
-        }
-        
-        if (base64Data) {
-          break; // Успешно получили изображение
-        }
-      } catch (error) {
-        console.error(`Error with model ${modelName}:`, error.message);
-        lastError = error;
-        // Пробуем следующую модель
-        continue;
+    for (const part of responseParts) {
+      if (part.inlineData && part.inlineData.data) {
+        base64Data = part.inlineData.data;
+        console.log(`Image data extracted, length: ${base64Data.length}`);
+        break;
       }
     }
 
     if (!base64Data) {
-      console.error('No image data in response after trying all models. Last error:', lastError?.message);
+      console.error('No image data in response. Response structure:', JSON.stringify(response, null, 2));
       return new Response(JSON.stringify({ 
-        error: 'Failed to generate image. Models may not support image generation or API key is invalid.',
-        details: lastError?.message || 'Unknown error'
+        error: 'No image data received from Gemini. Model may not support image generation.',
+        debug: 'Response structure logged to server console'
       }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
